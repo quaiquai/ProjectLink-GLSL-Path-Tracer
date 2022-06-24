@@ -2,7 +2,7 @@
 *.d
 *.rc
 *.vcxproj
-.aps
+*.aps
 
 # Compiled Object files
 *.slo
