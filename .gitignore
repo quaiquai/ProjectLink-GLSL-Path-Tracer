@@ -1,5 +1,8 @@
 # Prerequisites
 *.d
+*.rc
+*.vcxproj
+.aps
 
 # Compiled Object files
 *.slo
