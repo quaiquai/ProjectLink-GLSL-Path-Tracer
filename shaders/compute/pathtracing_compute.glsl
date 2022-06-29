@@ -12,13 +12,14 @@ uniform float game_window_y;
 uniform vec2 iMouse;
 uniform float angleX;
 uniform float angleY;
-
-layout(rgba32f, binding = 1) uniform image2D texture;
+uniform bool w_press;
+uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
 
 layout(std430, binding = 3) buffer layoutName
 {
 	float data_SSBO[];
 };
+
 
 // The minimunm distance a ray must travel before we consider an intersection.
 // This is to prevent a ray from intersecting a surface it just bounced off of.
@@ -39,8 +40,9 @@ const float c_rayPosNormalNudge = 0.001;
 const int c_numRendersPerFrame = 2;
 const float c_minCameraAngle = 0.01f;
 const float c_maxCameraAngle = (c_pi - 0.01f);
-const vec3 c_cameraAt = vec3(0.0f, 0.0f, 0.0f);
+vec3 c_cameraAt = camera;
 const float c_cameraDistance = 0.1f;
+
 
 const vec3 light = vec3(0.0, 10.0, 20.0);
 
@@ -92,8 +94,6 @@ vec3 RandomUnitVector(inout uint state)
 	float y = r * sin(a);
 	return vec3(x, y, z);
 }
-
-
 
 // Triangle intersection. Returns { t, u, v }
 vec3 triIntersect(in vec3 ro, in vec3 rd, in vec3 v0, in vec3 v1, in vec3 v2)
@@ -262,100 +262,38 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 	vec3 sceneTranslation = vec3(0.0f, 0.0f, 5.0f);
 	vec4 sceneTranslation4 = vec4(sceneTranslation, 0.0f);
 
-	for (int i = 0; i < data_SSBO.length(); i+=3) {
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(data_SSBO[i], data_SSBO[i+1], data_SSBO[i+2], 3.0f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(0.9f, 0.5f, 0.9f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 0.3f;
-			hitInfo.material.roughness = 0.2;
-			hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
+	for (int i = 0; i < 5; i++) {
+		for (int j = 0; j < 5; j++) {
+			for (int k = 0; k < 5; k++) {
+				if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(i * 6 - 12, -9.5f + k * 6 - 6, 20.0f + j * 6, 3.0f) + sceneTranslation4))
+				{
+					hitInfo.material.albedo = vec3(0.9f, 0.5f, 0.9f);
+					hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+					hitInfo.material.percentSpecular = 0.3f;
+					hitInfo.material.roughness = 0.2;
+					hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
+				}
+			}
+			
 		}
-
-	}
-
-	// back wall
-	{
-
-		
-		vec3 A = vec3(-12.6f, -12.6f, 25.0f) + sceneTranslation;
-		vec3 B = vec3(12.6f, -12.6f, 25.0f) + sceneTranslation;
-		vec3 C = vec3(12.6f, 12.6f, 25.0f) + sceneTranslation;
-		vec3 D = vec3(-12.6f, 12.6f, 25.0f) + sceneTranslation;
-		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
-		{
-			hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 0.0f;
-			hitInfo.material.roughness = 0.0f;
-			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
-		}
-
-
 	}
 
 	// floor
 	{
-		vec3 A = vec3(-12.6f, -12.45f, 25.0f) + sceneTranslation;
-		vec3 B = vec3(12.6f, -12.45f, 25.0f) + sceneTranslation;
+		vec3 A = vec3(-12.6f, -12.45f, 45.0f) + sceneTranslation;
+		vec3 B = vec3(12.6f, -12.45f, 45.0f) + sceneTranslation;
 		vec3 C = vec3(12.6f, -12.45f, 15.0f) + sceneTranslation;
 		vec3 D = vec3(-12.6f, -12.45f, 15.0f) + sceneTranslation;
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
-			hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
+			hitInfo.material.albedo = vec3(0.2f, 0.7f, 0.7f);
 			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
 			hitInfo.material.percentSpecular = 0.0f;
 			hitInfo.material.roughness = 0.0f;
 			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
 		}
-	}
 
-	// cieling
-	{
-		vec3 A = vec3(-12.6f, 12.5f, 25.0f) + sceneTranslation;
-		vec3 B = vec3(12.6f, 12.5f, 25.0f) + sceneTranslation;
-		vec3 C = vec3(12.6f, 12.5f, 15.0f) + sceneTranslation;
-		vec3 D = vec3(-12.6f, 12.5f, 15.0f) + sceneTranslation;
-		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
-		{
-			hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 0.0f;
-			hitInfo.material.roughness = 0.0f;
-			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
-		}
-	}
-
-	// left wall
-	{
-		vec3 A = vec3(-12.5f, -12.6f, 25.0f) + sceneTranslation;
-		vec3 B = vec3(-12.5f, -12.6f, 15.0f) + sceneTranslation;
-		vec3 C = vec3(-12.5f, 12.6f, 15.0f) + sceneTranslation;
-		vec3 D = vec3(-12.5f, 12.6f, 25.0f) + sceneTranslation;
-		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
-		{
-			hitInfo.material.albedo = vec3(0.7f, 0.1f, 0.1f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 0.0f;
-			hitInfo.material.roughness = 0.0f;
-			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
-		}
-	}
-
-	// right wall 
-	{
-		vec3 A = vec3(12.5f, -12.6f, 25.0f) + sceneTranslation;
-		vec3 B = vec3(12.5f, -12.6f, 15.0f) + sceneTranslation;
-		vec3 C = vec3(12.5f, 12.6f, 15.0f) + sceneTranslation;
-		vec3 D = vec3(12.5f, 12.6f, 25.0f) + sceneTranslation;
-		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
-		{
-			hitInfo.material.albedo = vec3(0.1f, 0.7f, 0.1f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 0.0f;
-			hitInfo.material.roughness = 0.0f;
-			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
-		}
+		
 	}
 
 	// light
@@ -367,42 +305,14 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
 			hitInfo.material.albedo = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f);
+			hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f) * 50f;
 			hitInfo.material.percentSpecular = 0.0f;
 			hitInfo.material.roughness = 0.0f;
 			hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
 		}
 	}
 
-	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-9.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
-	{
-		hitInfo.material.albedo = vec3(0.9f, 0.9f, 0.5f);
-		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-		hitInfo.material.percentSpecular = 0.1f;
-		hitInfo.material.roughness = 0.2f;
-		hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
-	}
-
-	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(0.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
-	{
-		hitInfo.material.albedo = vec3(0.9f, 0.5f, 0.9f);
-		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-		hitInfo.material.percentSpecular = 0.3f;
-		hitInfo.material.roughness = 0.2;
-		hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
-	}
-
-	// a ball which has blue diffuse but red specular. an example of a "bad material".
-	// a better lighting model wouldn't let you do this sort of thing
-	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(9.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
-	{
-		hitInfo.material.albedo = vec3(0.0f, 0.0f, 1.0f);
-		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-		hitInfo.material.percentSpecular = 0.5f;
-		hitInfo.material.roughness = 0.4f;
-		hitInfo.material.specularColor = vec3(1.0f, 0.0f, 0.0f);
-	}
-
+	/*
 	if (testTriangleIntersect(rayPos, rayDir, sphereX, vec3(0.0f, 0.0f, 5.0f), vec3(0.0f, 1.0f, 5.0f), hitInfo))
 	{
 		hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
@@ -411,55 +321,7 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 		hitInfo.material.roughness = 0.0f;
 		hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f);
 	}
-
-	// shiny green balls of varying roughnesses
-	{
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-10.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 1.0f;
-			hitInfo.material.roughness = 0.0f;
-			hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
-		}
-
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-5.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 1.0f;
-			hitInfo.material.roughness = 0.25f;
-			hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
-		}
-
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(sphereX, 1.75f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
-			hitInfo.material.emissive = vec3(1.0f, 1.0f, 1.0f) * 20f;
-			hitInfo.material.percentSpecular = 1.0f;
-			hitInfo.material.roughness = 0.5f;
-			hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
-		}
-
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(5.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 1.0f;
-			hitInfo.material.roughness = 0.75f;
-			hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
-		}
-
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(10.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
-		{
-			hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
-			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
-			hitInfo.material.percentSpecular = 1.0f;
-			hitInfo.material.roughness = 1.0f;
-			hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
-		}
-
-	}
+	*/
 }
 
 float shadow(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo) {
@@ -694,21 +556,18 @@ void GetCameraVectors(out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp,
 
 	// otherwise use the mouse position to calculate camera position and orientation
 
-	//angleX += mouse.x;
-	//angleY += mouse.y;
+	cameraFwd.x = cos(angleX) * cos(angleY) * c_cameraDistance;
+	cameraFwd.y = -sin(angleY) * c_cameraDistance;
+	cameraFwd.z = sin(angleX) * cos(angleY) * c_cameraDistance;
 
-
+	if (w_press) {
+		cameraPos -= cameraFwd * 0.1;
+	}
 	
+	cameraPos = normalize(c_cameraAt - cameraFwd);
 
-	cameraPos.x = cos(angleX) * cos(angleY) * c_cameraDistance;
-	cameraPos.y = -sin(angleY) * c_cameraDistance;
-	cameraPos.z = sin(angleX) * cos(angleY) * c_cameraDistance;
-
-	cameraPos += c_cameraAt;
-
-	cameraFwd = normalize(c_cameraAt - cameraPos);
-	cameraRight = normalize(cross(vec3(0.0f, 1.0f, 0.0f), cameraFwd));
-	cameraUp = normalize(cross(cameraFwd, cameraRight));
+	cameraRight = normalize(cross(vec3(0.0f, 1.0f, 0.0f), cameraPos));
+	cameraUp = normalize(cross(cameraPos, cameraRight));
 }
 
 
@@ -717,9 +576,7 @@ void main() {
 	vec4 pixel = vec4(0.0, 1.0, 0.0, 1.0);
 	// get index in global work group i.e x,y position
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-	vec3 texturecolor = imageLoad(texture, pixel_coords.xy).rgb;
-
-	//texturecolor = SRGBToLinear(texturecolor);
+	vec3 texturecolor = imageLoad(img_output, pixel_coords.xy).rgb;
 
 	// initialize a random number state based on frag coord and frame
 	uint rngState = uint(uint(pixel_coords.x) * uint(1973) + uint(pixel_coords.y) * uint(9277) + uint(iTime) * uint(26699)) | uint(1);
@@ -728,8 +585,7 @@ void main() {
 	vec2 jitter = vec2(RandomFloat01(rngState), RandomFloat01(rngState)) - 0.5f;
 
 	// get the camera vectors
-	vec3 cameraPos, cameraFwd, cameraUp, cameraRight;
-	GetCameraVectors(cameraPos, cameraFwd, cameraUp, cameraRight);
+	
 	vec3 rayDir;
 	{
 		// calculate a screen position from -1 to +1 on each axis
@@ -744,27 +600,15 @@ void main() {
 		// make a ray direction based on camera orientation and field of view angle
 		float cameraDistance = tan(90f * 0.5f * c_pi / 180.0f);
 		rayDir = vec3(screen, cameraDistance);
-		rayDir = normalize(mat3(cameraRight, cameraUp, cameraFwd) * rayDir);
+		rayDir = normalize(mat3(cameraRight, cameraUp, cameraPos) * rayDir);
 	}
 
-	// calculate coordinates of the ray target on the imaginary pixel plane.
-	// -1 to +1 on x,y axis. 1 unit away on the z axis
-	//vec2 rt = vec2(pixel_coords.x, pixel_coords.y);
-	//vec3 rayTarget = vec3(((rt + jitter) / vec2(game_window_x, game_window_y)) * 2.0 - 1.0, cameraDistance);
-
-	// correct for aspect ratio
-	//float aspectRatio = game_window_x / game_window_y;
-	//rayTarget.y /= aspectRatio;
-
-	// calculate a normalized vector for the ray direction.
-	// it's pointing from the ray position to the ray target.
-	//vec3 rayDir = normalize(rayTarget - rayPosition);
 
 	//raytrace for this pxiel
 	vec3 color = vec3(0.0f, 0.0f, 0.0f);
 
 	for (int index = 0; index < c_numRendersPerFrame; ++index)
-		color += GetColorForRay(cameraPos, rayDir, rngState) / float(c_numRendersPerFrame);
+		color += GetColorForRay(cameraFwd + cameraMov, rayDir, rngState) / float(c_numRendersPerFrame);
 	
 	// convert from linear to sRGB for display
 	color = mix(texturecolor, color, 1.0 / float(iTime + 1.0));
