@@ -51,6 +51,7 @@ vec3 ACESFilm(vec3 x)
 	return clamp((x*(a*x + b)) / (x*(c*x + d) + e), 0.0f, 1.0f);
 }
 
+
 void main() {
 
 	// get index in global work group i.e x,y position

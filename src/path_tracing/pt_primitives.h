@@ -72,5 +72,18 @@ namespace PT {
 		}
 	};
 
+	class Cube : Primitive {
+	public:
+		
+		std::vector<glm::vec3> vertices;
+
+		Cube(glm::vec3 pos, glm::vec3 color, glm::vec3 emissive, glm::vec3 specularColor, float rough, float percentSpec)
+			: Primitive(pos, 10.0, color, emissive, specularColor, rough, percentSpec) {
+
+			vertices.push_back(glm::vec3(0.0, 0.0, 0.0));
+			vertices.push_back(glm::vec3(1.0, 1.0, 1.0));
+		}
+	};
+
 }
 
