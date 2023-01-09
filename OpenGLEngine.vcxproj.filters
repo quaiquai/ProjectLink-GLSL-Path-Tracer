@@ -63,7 +63,19 @@
     <ClInclude Include="src\targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\pt_primitives.h">
+    <ClInclude Include="src\path_tracing\pt_renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\path_tracing\pt_primitives.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\path_tracing\pt_voxel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\path_tracing\pt_blocktypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\path_tracing\pt_chunk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -96,6 +108,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\ui.h">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -184,6 +199,24 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="assets\textures\container.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\nx.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\ny.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\nz.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\px.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\py.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\textures\abovecloudsday\pz.png">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
