@@ -19,6 +19,7 @@ vec3 LessThan(vec3 f, float value)
 
 vec3 LinearToSRGB(vec3 rgb)
 {
+
 	rgb = clamp(rgb, 0.0f, 1.0f);
 
 	return mix(

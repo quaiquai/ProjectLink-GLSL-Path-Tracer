@@ -16,11 +16,12 @@ uniform float angleY;
 
 uniform bool w_press;
 uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
-layout(binding = 6) uniform samplerCube skybox;
+//layout(binding = 6) uniform samplerCube skybox;
+layout(binding = 7) uniform sampler2D equirectangularMap;
 layout(binding = 5) uniform sampler3D world;
 
 
-#define SCENE 7
+#define SCENE 8
 
 layout(std430, binding = 4) buffer layoutName
 {
@@ -96,6 +97,15 @@ float ScalarTriple(vec3 u, vec3 v, vec3 w)
 	return dot(cross(u, v), w);
 }
 
+
+const vec2 invAtan = vec2(0.1591, 0.3183);
+vec2 SampleSphericalMap(in vec3 v)
+{
+	vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+	uv *= invAtan;
+	uv += 0.5;
+	return uv;
+}
 
 uint wang_hash(inout uint seed)
 {
@@ -396,10 +406,10 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 	
 
 	{
-		vec3 A = vec3(-250.0f, -12.5f, 250.0f);
-		vec3 B = vec3(250.0f, -12.5f, 250.0f);
-		vec3 C = vec3(250.0f, -12.5f, -250.0f);
-		vec3 D = vec3(-250.0f, -12.5f, -250.0f);
+		vec3 A = vec3(-50.0f, -12.5f, 50.0f);
+		vec3 B = vec3(50.0f, -12.5f, 50.0f);
+		vec3 C = vec3(50.0f, -12.5f, -50.0f);
+		vec3 D = vec3(-50.0f, -12.5f, -50.0f);
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
 			vec3 hitPos = rayPos + rayDir * hitInfo.dist;
@@ -467,12 +477,14 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 		}
 	}
 	*/
+
+
 #if SCENE == 0
 
 	const int c_numSpheres = 7;
 	for (int sphereIndex = 0; sphereIndex < c_numSpheres; ++sphereIndex)
 	{
-		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-18.0f + 6.0f * float(sphereIndex), -8.0f, 00.0f, 2.8f)))
+		if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-18.0f + 6.0f * float(sphereIndex), -8.0f, 0.0f, 2.8f)))
 		{
 			float r = float(sphereIndex) / float(c_numSpheres - 1) * 0.5f;
 
@@ -640,6 +652,59 @@ for (int sphereIndex = 0; sphereIndex < c_numSpheres; ++sphereIndex)
 	}
 }
 
+#elif SCENE == 8
+
+	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-18.0f + 6.0f * float(0), -8.0f, 00.0f, 2.8f)))
+	{
+
+		hitInfo.material = GetZeroedMaterial();
+
+		vec3 hitPos = rayPos + rayDir * hitInfo.dist;
+		hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
+		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+		hitInfo.material.specularChance = 0.4;
+		hitInfo.material.specularRoughness = 0.0;
+		hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f);
+		hitInfo.material.IOR = 1.1f;
+		hitInfo.material.refractionChance = 0.0f;
+		hitInfo.material.refractionRoughness = 0.0;
+		hitInfo.material.refractionColor = vec3(0.0f, 0.0f, 0.0f);
+	}
+
+	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-18.0f + 6.0f * float(1), -8.0f, 00.0f, 2.8f)))
+	{
+
+		hitInfo.material = GetZeroedMaterial();
+
+		vec3 hitPos = rayPos + rayDir * hitInfo.dist;
+		hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
+		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+		hitInfo.material.specularChance = 1.0;
+		hitInfo.material.specularRoughness = 0.0;
+		hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f);
+		hitInfo.material.IOR = 1.1f;
+		hitInfo.material.refractionChance = 0.0f;
+		hitInfo.material.refractionRoughness = 0.0;
+		hitInfo.material.refractionColor = vec3(0.0f, 0.0f, 0.0f);
+	}
+
+	if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-18.0f + 6.0f * float(2), -8.0f, 00.0f, 2.8f)))
+	{
+
+		hitInfo.material = GetZeroedMaterial();
+
+		vec3 hitPos = rayPos + rayDir * hitInfo.dist;
+		hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
+		hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+		hitInfo.material.specularChance = 0.02f;
+		hitInfo.material.specularRoughness = 0.0f;
+		hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+		hitInfo.material.IOR = 1.5;
+		hitInfo.material.refractionChance = 1.0f;
+		hitInfo.material.refractionRoughness = 0.0f;
+	}
+
+
 #endif
 
 	
@@ -652,6 +717,7 @@ if (RayGridIntersect(rayPos, rayDir, hitInfo, vec3(data_SSBO[0], data_SSBO[1], d
 			hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
 		}
 	}
+
 }
 	
 /*
@@ -794,15 +860,15 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
 		hitInfo.dist = c_superFar;
 		hitInfo.fromInside = false;
 		TestSceneTrace(rayPos, rayDir, hitInfo);
+		bool miss = false;
 
 		// if the ray missed, we are done
 		if (hitInfo.dist == c_superFar)
 		{	
-			ret += texture(skybox, rayDir).rgb * 1.0 * throughput;
-			
-			//ret += vec3(0.0, 0.0, 0.0);
+			ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
 			break;
 		}
+
 
 		// do absorption if we are hitting from inside the object
 		if (hitInfo.fromInside)
@@ -902,6 +968,12 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
 			throughput *= 1.0f / p;
 		}
 
+		throughput = clamp(throughput, 0.0, 1.0);
+
+		if (miss) {
+			break;
+		}
+
 	}
 
 	// return pixel color
@@ -936,7 +1008,7 @@ void GetCameraVectors(out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp,
 
 void main() {
 	// base pixel colour for image
-	vec4 pixel = vec4(0.0, 1.0, 0.0, 1.0);
+	vec4 pixel = vec4(0.0, 0.0, 0.0, 1.0);
 	// get index in global work group i.e x,y position
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec4 texturecolor = imageLoad(img_output, pixel_coords.xy);
