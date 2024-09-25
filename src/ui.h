@@ -1,18 +1,21 @@
 #ifndef UI_H
 #define UI_H
 
-#include <GLFW/glfw3.h>
 
+#include "./shader.h"//has GLAD and should be before glfw
+#include <GLFW/glfw3.h>
+#include <iostream>
+#include <string>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
-class UI{
-public:
 
-	ImGuiIO io;
+namespace UI{
 
-	UI(GLFWwindow* window) {
+	static bool view_attached_shaders = false;
+
+	static void init(GLFWwindow* window) {
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO &io = ImGui::GetIO();
@@ -25,11 +28,28 @@ public:
 		ImGui::StyleColorsDark();
 		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
-		
 	}
 
-	void newFrameUI() {
+	static void drawMenus(std::map<std::string, Shader> &list_of_shaders) {
+		ImGui::BeginMainMenuBar();
+		if (ImGui::BeginMenu("File"))
+		{
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Shaders")) {
+			ImGui::MenuItem("Show Attached Shaders", NULL, &view_attached_shaders);
+			/*
+			for (int i = 0; i < list_of_shaders.size(); ++i) {
+				std::cout << i << std::endl;
+			}
+			*/
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMainMenuBar();
+	}
+
+	static void newFrameUI(std::map<std::string, Shader> &list_of_shaders) {
 		// feed inputs to dear imgui, start new frame
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -38,29 +58,36 @@ public:
 		// render your GUI
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
-		this->drawMenus();
+		drawMenus(list_of_shaders);
 	}
 
-	void renderUI() {
+	static void renderUI() {
 		// Render dear imgui into screen
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 
-	void shutdownUI() {
+	static void drawShaderUI(Shader &shader) {
+		for (auto &elements : shader.uniform_floats) {
+			if (ImGui::SliderFloat(elements.first.c_str(), &elements.second, -10.0f, 50.0f)) {
+				shader.uniform_floats["iFrame"] = 0.0f;
+			};
+		}
+	}
+
+	//we want to be able to pass in a shader and add it to a window of all attached shaders
+	//that are being used
+	//void drawattachedShaders(Shader &attachedShader) {
+
+	//}
+
+	static void shutdownUI() {
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 	}
 
-	void drawMenus() {
-		ImGui::BeginMainMenuBar();
-		if (ImGui::BeginMenu("File"))
-		{
-			ImGui::EndMenu();
-		}
-		ImGui::EndMainMenuBar();
-	}
+	
 
 
 };

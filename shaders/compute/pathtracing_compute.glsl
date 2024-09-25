@@ -14,6 +14,9 @@ uniform vec2 iMouse;
 uniform float angleX;
 uniform float angleY;
 
+uniform int test_int;
+uniform float u_fov;
+
 uniform bool w_press;
 uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
 //layout(binding = 6) uniform samplerCube skybox;
@@ -50,6 +53,7 @@ const float c_minCameraAngle = 0.01f;
 const float c_maxCameraAngle = (c_pi - 0.01f);
 vec3 c_cameraAt = camera;
 const float c_cameraDistance = 0.0f;
+float FOV = u_fov;
 
 
 const vec3 light = vec3(0.0, 10.0, 20.0);
@@ -1033,7 +1037,7 @@ void main() {
 		screen.y /= aspectRatio;
 
 		// make a ray direction based on camera orientation and field of view angle
-		float cameraDistance = tan(50f * 0.5f * c_pi / 180.0f);
+		float cameraDistance = tan(FOV * 0.5f * c_pi / 180.0f);
 		rayDir = vec3(screen, cameraDistance);
 		rayDir = normalize(mat3(cameraRight, cameraUp, cameraPos) * rayDir);
 	}
