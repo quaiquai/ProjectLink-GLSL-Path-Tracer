@@ -244,6 +244,16 @@ void Shader::updateUniforms() {
 	}
 }
 
+void Shader::attachCamera(PTCamera &camera) {
+	setFloat("u_fov", 50.f);
+	setVec3("cameraPos", camera.cameraPos);
+	setVec3("cameraFwd", camera.cameraFwd);
+	setVec3("cameraUp", camera.cameraUp);
+	setVec3("cameraRight", camera.cameraRight);
+	setVec3("cameraMov", camera.cameraMov);
+
+}
+
 // utility function for checking shader compilation/linking errors.
 // ------------------------------------------------------------------------
 void Shader::checkCompileErrors(GLuint shader, std::string type)

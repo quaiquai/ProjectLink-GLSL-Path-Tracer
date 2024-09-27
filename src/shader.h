@@ -16,6 +16,8 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
+#include "path_tracing/pt_camera.h"
+
 
 class Shader
 {
@@ -81,6 +83,8 @@ public:
 	void setMat4(const std::string name, const glm::mat4 mat);
 
 	void updateUniforms();
+
+	void attachCamera(PTCamera &camera);
 
 
 

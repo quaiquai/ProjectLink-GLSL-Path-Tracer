@@ -78,6 +78,9 @@
     <ClInclude Include="src\path_tracing\pt_chunk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\path_tracing\pt_camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="imgui\imgui.cpp">
@@ -111,6 +114,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\path_tracing\pt_camera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
