@@ -30,6 +30,7 @@ public:
 	std::unordered_map<std::string, int> uniform_ints;
 	std::unordered_map<std::string, float> uniform_floats;
 	std::unordered_map<std::string, glm::vec3> uniform_vec3;
+	std::unordered_map<std::string, glm::vec4> uniform_vec4;
 	std::unordered_map<std::string, bool> uniform_bool;
 	std::unordered_map<std::string, glm::vec2> uniform_vec2;
 
@@ -56,28 +57,28 @@ public:
 	void setFloat(const std::string name, float value);
 
 	// ------------------------------------------------------------------------
-	void setVec2(const std::string &name, const glm::vec2 &value);
+	void setVec2(const std::string name, const glm::vec2 value);
 
-	void setVec2(const std::string &name, float x, float y);
-
-	// ------------------------------------------------------------------------
-	void setVec3(const std::string &name, const glm::vec3 &value);
-
-	void setVec3(const std::string &name, float x, float y, float z);
+	void setVec2(const std::string name, float x, float y);
 
 	// ------------------------------------------------------------------------
-	void setVec4(const std::string &name, const glm::vec4 &value);
+	void setVec3(const std::string name, const glm::vec3 value);
 
-	void setVec4(const std::string &name, float x, float y, float z, float w);
-
-	// ------------------------------------------------------------------------
-	void setMat2(const std::string &name, const glm::mat2 &mat);
+	void setVec3(const std::string name, float x, float y, float z);
 
 	// ------------------------------------------------------------------------
-	void setMat3(const std::string &name, const glm::mat3 &mat);
+	void setVec4(const std::string name, const glm::vec4 value);
+
+	void setVec4(const std::string name, float x, float y, float z, float w);
 
 	// ------------------------------------------------------------------------
-	void setMat4(const std::string &name, const glm::mat4 &mat);
+	void setMat2(const std::string name, const glm::mat2 mat);
+
+	// ------------------------------------------------------------------------
+	void setMat3(const std::string name, const glm::mat3 mat);
+
+	// ------------------------------------------------------------------------
+	void setMat4(const std::string name, const glm::mat4 mat);
 
 	void updateUniforms();
 

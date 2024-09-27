@@ -73,6 +73,18 @@ namespace UI{
 				shader.uniform_floats["iFrame"] = 0.0f;
 			};
 		}
+
+		for (auto &elements : shader.uniform_vec2) {
+			if (ImGui::SliderFloat2(elements.first.c_str(), &elements.second[0], -10.0f, 50.0f)) {
+				shader.uniform_floats["iFrame"] = 0.0f;
+			};
+		}
+
+		for (auto &elements : shader.uniform_vec3) {
+			if (ImGui::SliderFloat3(elements.first.c_str(), &elements.second[0], -10.0f, 50.0f)) {
+				shader.uniform_floats["iFrame"] = 0.0f;
+			};
+		}
 	}
 
 	//we want to be able to pass in a shader and add it to a window of all attached shaders
