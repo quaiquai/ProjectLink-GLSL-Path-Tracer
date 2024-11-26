@@ -16,6 +16,7 @@ uniform float angleY;
 
 uniform int test_int;
 uniform float u_fov;
+uniform int scene_object_count;
 
 uniform bool w_press;
 uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
