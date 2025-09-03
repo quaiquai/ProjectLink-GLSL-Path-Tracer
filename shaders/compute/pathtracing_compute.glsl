@@ -697,10 +697,10 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 	// light
 	
 	{
-		vec3 A = vec3(-5.0f, 5.4f, 2.5f);
-		vec3 B = vec3(5.0f, 5.4f, 2.5f);
-		vec3 C = vec3(5.0f, 5.4f, -2.5f);
-		vec3 D = vec3(-5.0f, 5.4f, -2.5f);
+		vec3 A = vec3(-5.0f, 2.4f, 2.5f) + sphereX;
+		vec3 B = vec3(5.0f, 2.4f, 2.5f) + sphereX;
+		vec3 C = vec3(5.0f, -5.4f, 2.5f) + sphereX;
+		vec3 D = vec3(-5.0f, -5.4f, 2.5f) + sphereX;
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
 			hitInfo.material = GetZeroedMaterial();
