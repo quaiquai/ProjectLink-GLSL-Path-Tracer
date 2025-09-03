@@ -24,6 +24,73 @@ uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
 layout(binding = 7) uniform sampler2D equirectangularMap;
 layout(binding = 5) uniform sampler3D world;
 
+// BVH Node structure (must match CPU side)
+struct BVHNode {
+	vec3 minBounds;
+	uint leftChild;     // 0 means leaf node
+	vec3 maxBounds;
+	uint triangleCount; // For leaf: triangle count, for internal: right child
+	uint triangleOffset; // For leaf: offset into triangle array
+	uint padding[3];     // Align to 64 bytes
+};
+
+// Triangle structure (must match CPU side exactly)
+struct OBJTriangle {
+	// Vertex 0
+	vec3 v0_pos;
+	vec3 v0_normal;
+	vec2 v0_texCoord;
+
+	// Vertex 1
+	vec3 v1_pos;
+	vec3 v1_normal;
+	vec2 v1_texCoord;
+
+	// Vertex 2
+	vec3 v2_pos;
+	vec3 v2_normal;
+	vec2 v2_texCoord;
+
+	uint materialIndex;
+	uint padding[3]; // For alignment
+};
+
+// Material structure (must match CPU side)
+struct OBJMaterial {
+	vec3 albedo;
+	float padding1;
+	vec3 emissive;
+	float specularChance;
+	float specularRoughness;
+	float padding2;
+	float padding3;
+	float padding4;
+	vec3 specularColor;
+	float IOR;
+	float refractionChance;
+	float refractionRoughness;
+	float padding5;
+	float padding6;
+	vec3 refractionColor;
+	float padding7;
+};
+
+// Add these buffer bindings to your existing ones
+layout(std430, binding = 8) buffer OBJBVHBuffer
+{
+	BVHNode objBvhNodes[];
+};
+
+layout(std430, binding = 9) buffer OBJTriangleBuffer
+{
+	OBJTriangle objTriangles[];
+};
+
+layout(std430, binding = 10) buffer OBJMaterialBuffer
+{
+	OBJMaterial objMaterials[];
+};
+
 
 #define SCENE 8
 
@@ -35,7 +102,7 @@ layout(std430, binding = 4) buffer layoutName
 
 // The minimunm distance a ray must travel before we consider an intersection.
 // This is to prevent a ray from intersecting a surface it just bounced off of.
-const float c_minimumRayHitTime = 0.001;
+const float c_minimumRayHitTime = 0.01;
 const float c_superFar = 10000.0;
 
 const float c_pi = 3.14159265359f;
@@ -46,7 +113,7 @@ const float c_exposure = 1.0f;
 
 // after a hit, it moves the ray this far along the normal away from a surface.
 // Helps prevent incorrect intersections when rays bounce off of objects.
-const float c_rayPosNormalNudge = 0.001;
+const float c_rayPosNormalNudge = 0.00001f;
 
 // how many renders per frame - to get around the vsync limitation.
 const int c_numRendersPerFrame = 2;
@@ -157,6 +224,158 @@ float FresnelReflectAmount(float n1, float n2, vec3 normal, vec3 incident, float
 
 	// adjust reflect multiplier for object reflectivity
 	return mix(f0, f90, ret);
+}
+
+// BVH ray-box intersection test
+bool rayBoxIntersect(vec3 rayOrigin, vec3 rayDir, vec3 minBounds, vec3 maxBounds, float maxT) {
+	vec3 invDir = 1.0 / rayDir;
+	vec3 t0 = (minBounds - rayOrigin) * invDir;
+	vec3 t1 = (maxBounds - rayOrigin) * invDir;
+
+	vec3 tmin = min(t0, t1);
+	vec3 tmax = max(t0, t1);
+
+	float tnear = max(max(tmin.x, tmin.y), tmin.z);
+	float tfar = min(min(tmax.x, tmax.y), tmax.z);
+
+	return tnear <= tfar && tfar > 0.0 && tnear < maxT;
+}
+
+// Triangle intersection with barycentric coordinates
+bool objTriangleIntersect(vec3 rayOrigin, vec3 rayDir, OBJTriangle tri,
+	inout float t, inout vec3 normal, inout vec2 texCoord, inout uint matIndex) {
+	vec3 edge1 = tri.v1_pos - tri.v0_pos;
+	vec3 edge2 = tri.v2_pos - tri.v0_pos;
+	vec3 h = cross(rayDir, edge2);
+	float a = dot(edge1, h);
+
+	if (a > -0.00001 && a < 0.00001) return false;
+
+	float f = 1.0 / a;
+	vec3 s = rayOrigin - tri.v0_pos;
+	float u = f * dot(s, h);
+	
+	if (u < 0.0 || u > 1.0) return false;
+
+	vec3 q = cross(s, edge1);
+	float v = f * dot(rayDir, q);
+
+	if (v < 0.0 || u + v > 1.0) return false;
+
+	float dist = f * dot(edge2, q);
+
+	if (dist > 0.000001 && dist < t) {
+		t = dist;
+
+		//normalize(cross(v1v0, v2v0));
+		// Interpolate normal using barycentric coordinates
+		float w = 1.0 - u - v;
+		normal = normalize(w * tri.v0_normal + u * tri.v1_normal + v * tri.v2_normal);
+		//normal = vec3(0.0, 1.0, 0.0);
+		// Interpolate texture coordinates
+		texCoord = w * tri.v0_texCoord + u * tri.v1_texCoord + v * tri.v2_texCoord;
+		//texCoord = vec2(0.0, 0.0);
+		matIndex = tri.materialIndex;
+		return true;
+	}
+
+	return false;
+}
+
+
+
+// BVH traversal using a stack
+bool traverseOBJBVH(vec3 rayOrigin, vec3 rayDir, inout SRayHitInfo hitInfo) {
+	if (objBvhNodes.length() == 0) return false;
+
+	bool hit = false;
+
+	// Stack for BVH traversal
+	uint stack[32];
+	int stackPtr = 0;
+	stack[stackPtr++] = 0; // Start with root node
+
+	vec3 bestNormal;
+	vec2 bestTexCoord;
+	uint bestMaterialIndex = 0;
+
+	while (stackPtr > 0) {
+		uint nodeIndex = stack[--stackPtr];
+
+		if (nodeIndex >= objBvhNodes.length()) continue;
+
+		BVHNode node = objBvhNodes[nodeIndex];
+
+		// Test ray against bounding box
+		if (!rayBoxIntersect(rayOrigin, rayDir, node.minBounds, node.maxBounds, hitInfo.dist)) {
+			continue;
+		}
+
+		if (node.leftChild == 0) {
+			// Leaf node - test triangles
+			for (uint i = 0; i < node.triangleCount; i++) {
+				uint triIndex = node.triangleOffset + i;
+				if (triIndex >= objTriangles.length()) continue;
+
+				vec3 normal;
+				vec2 texCoord;
+				uint matIndex;
+				float t = hitInfo.dist;
+
+				if (objTriangleIntersect(rayOrigin, rayDir, objTriangles[triIndex], t, normal, texCoord, matIndex)) {
+					if (t < hitInfo.dist && t > c_minimumRayHitTime) {
+						hitInfo.dist = t;
+						bestNormal = normal;
+						bestTexCoord = texCoord;
+						bestMaterialIndex = matIndex;
+						hit = true;
+					}
+				}
+			}
+		}
+		else {
+			// Internal node - add children to stack
+			uint leftChild = node.leftChild; // Convert from 1-based to 0-based
+			uint rightChild = node.triangleCount; // Right child stored in triangleCount
+
+			if (stackPtr < 30) { // Leave room for both children
+				stack[stackPtr++] = rightChild;
+				stack[stackPtr++] = leftChild;
+			}
+		}
+	}
+
+	if (hit) {
+		hitInfo.normal = bestNormal;
+
+		// Apply material properties
+		if (bestMaterialIndex < objMaterials.length()) {
+			OBJMaterial mat = objMaterials[bestMaterialIndex];
+			hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
+			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+			hitInfo.material.specularChance = 0.02f;
+			hitInfo.material.specularRoughness = 0.0f;
+			hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+			hitInfo.material.IOR = 1.5;
+			hitInfo.material.refractionChance = 1.0f;
+			hitInfo.material.refractionRoughness = 0.0f;
+		}
+		else {
+			// Default material
+			hitInfo.material = GetZeroedMaterial();
+			hitInfo.material.albedo = vec3(0.9, 0.4, 0.9);
+			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+			hitInfo.material.specularChance = 0.1f;
+			hitInfo.material.specularRoughness = 0.0f;
+			hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+			hitInfo.material.IOR = 1.5f;
+			hitInfo.material.refractionChance = 0.0f;
+			hitInfo.material.refractionRoughness = 0.0f;
+			hitInfo.material.refractionColor = vec3(0.0f, 0.0f, 0.0f);
+		}
+	}
+
+	return hit;
 }
 
 // Triangle intersection. Returns { t, u, v }
@@ -409,7 +628,8 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 	vec3 sceneTranslation = sphereX;
 	vec4 sceneTranslation4 = vec4(sceneTranslation, 0.0f);
 	
-
+	traverseOBJBVH(rayPos, rayDir, hitInfo);
+	
 	{
 		vec3 A = vec3(-50.0f, -12.5f, 50.0f);
 		vec3 B = vec3(50.0f, -12.5f, 50.0f);
@@ -422,14 +642,18 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 			//checkerboard texture
 			float checkerSize = 0.1;
 			float floorColor = mod(floor(checkerSize * hitPos.x) + floor(checkerSize * hitPos.z), 2.0);
-			float fin = max(sign(floorColor), 0.0);
+			//float fin = max(sign(floorColor), 0.0);
+			float fin = max(1.0f, 0.0);
 
 			hitInfo.material = GetZeroedMaterial();
 			hitInfo.material.albedo = vec3(fin, fin, fin);
 		}
 	}
 
+	
+
 	// striped background
+	/*
 	{
 		vec3 A = vec3(-25.0f, -1.5f, 5.0f) + sphereX;
 		vec3 B = vec3(25.0f, -1.5f, 5.0f) + sphereX;
@@ -453,8 +677,10 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 			hitInfo.material.refractionColor = vec3(0.0f, 0.5f, 1.0f);
 		}
 	}
+	*/
 
 	// cieling piece above light
+	/*
 	{
 		vec3 A = vec3(-7.5f, 12.5f, 5.0f);
 		vec3 B = vec3(7.5f, 12.5f, 5.0f);
@@ -467,22 +693,22 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 			
 		}
 	}
-
+	*/
 	// light
-	/*
+	
 	{
-		vec3 A = vec3(-5.0f, 12.4f, 2.5f);
-		vec3 B = vec3(5.0f, 12.4f, 2.5f);
-		vec3 C = vec3(5.0f, 12.4f, -2.5f);
-		vec3 D = vec3(-5.0f, 12.4f, -2.5f);
+		vec3 A = vec3(-5.0f, 5.4f, 2.5f);
+		vec3 B = vec3(5.0f, 5.4f, 2.5f);
+		vec3 C = vec3(5.0f, 5.4f, -2.5f);
+		vec3 D = vec3(-5.0f, 5.4f, -2.5f);
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
 			hitInfo.material = GetZeroedMaterial();
 			hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f) * 20.0f;
 		}
 	}
-	*/
-
+	
+	return;
 
 #if SCENE == 0
 
@@ -870,7 +1096,7 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
 		// if the ray missed, we are done
 		if (hitInfo.dist == c_superFar)
 		{	
-			ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
+			//ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
 			break;
 		}
 

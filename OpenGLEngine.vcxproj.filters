@@ -102,6 +102,12 @@
     <ClInclude Include="src\cgltf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\gltf_loader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\obj_loader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="imgui\imgui.cpp">
@@ -175,6 +181,10 @@
     <None Include="shaders\pathtracing_main.vs" />
     <None Include="shaders\compute\pathtracing_compute.glsl" />
     <None Include="shaders\compute\final.glsl" />
+    <None Include="assets\objects\dragon\DragonAttenuation.bin">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="assets\objects\dragon\DragonAttenuation.gltf" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="assets\textures\brick_diffuse.jpg">
@@ -253,6 +263,12 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="assets\textures\abovecloudsday\pz.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\objects\dragon\checkerboard.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\objects\dragon\Dragon_ThicknessMap.jpg">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
