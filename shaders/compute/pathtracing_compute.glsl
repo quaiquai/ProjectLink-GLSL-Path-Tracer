@@ -116,7 +116,7 @@ const float c_exposure = 1.0f;
 const float c_rayPosNormalNudge = 0.00001f;
 
 // how many renders per frame - to get around the vsync limitation.
-const int c_numRendersPerFrame = 2;
+const int c_numRendersPerFrame = 1;
 const float c_minCameraAngle = 0.01f;
 const float c_maxCameraAngle = (c_pi - 0.01f);
 vec3 c_cameraAt = camera;
@@ -270,8 +270,8 @@ bool objTriangleIntersect(vec3 rayOrigin, vec3 rayDir, OBJTriangle tri,
 		//normalize(cross(v1v0, v2v0));
 		// Interpolate normal using barycentric coordinates
 		float w = 1.0 - u - v;
-		normal = normalize(w * tri.v0_normal + u * tri.v1_normal + v * tri.v2_normal);
-		//normal = vec3(0.0, 1.0, 0.0);
+		//normal = normalize(w * tri.v0_normal + u * tri.v1_normal + v * tri.v2_normal);
+		normal = normalize(cross(edge1, edge2));
 		// Interpolate texture coordinates
 		texCoord = w * tri.v0_texCoord + u * tri.v1_texCoord + v * tri.v2_texCoord;
 		//texCoord = vec2(0.0, 0.0);
@@ -351,13 +351,14 @@ bool traverseOBJBVH(vec3 rayOrigin, vec3 rayDir, inout SRayHitInfo hitInfo) {
 		// Apply material properties
 		if (bestMaterialIndex < objMaterials.length()) {
 			OBJMaterial mat = objMaterials[bestMaterialIndex];
+			hitInfo.material = GetZeroedMaterial();
 			hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
 			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
 			hitInfo.material.specularChance = 0.02f;
 			hitInfo.material.specularRoughness = 0.0f;
 			hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
 			hitInfo.material.IOR = 1.5;
-			hitInfo.material.refractionChance = 1.0f;
+			hitInfo.material.refractionChance = 0.0f;
 			hitInfo.material.refractionRoughness = 0.0f;
 		}
 		else {
@@ -704,7 +705,7 @@ void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 		if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
 		{
 			hitInfo.material = GetZeroedMaterial();
-			hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f) * 20.0f;
+			hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f) * 10.0f;
 		}
 	}
 	
@@ -1083,7 +1084,7 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
 	vec3 rayPos = startRayPos;
 	vec3 rayDir = startRayDir;
 
-	for (int bounceIndex = 0; bounceIndex <= 8; ++bounceIndex)
+	for (int bounceIndex = 0; bounceIndex <= 1; ++bounceIndex)
 	{
 		// shoot a ray out into the world
 		SRayHitInfo hitInfo;
@@ -1096,7 +1097,7 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
 		// if the ray missed, we are done
 		if (hitInfo.dist == c_superFar)
 		{	
-			//ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
+			ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
 			break;
 		}
 

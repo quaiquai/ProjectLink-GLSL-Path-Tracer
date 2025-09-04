@@ -185,6 +185,7 @@
       <Filter>Resource Files</Filter>
     </None>
     <None Include="assets\objects\dragon\DragonAttenuation.gltf" />
+    <None Include="shaders\compute\simple_pathtracing_compute.glsl" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="assets\textures\brick_diffuse.jpg">

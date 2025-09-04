@@ -1,0 +1,674 @@
+#version 430
+precision highp float;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) uniform image2D img_output;
+
+uniform vec3 camera;
+uniform float iTime;
+uniform float iFrame;
+uniform vec3 sphereX;
+uniform float game_window_x;
+uniform float game_window_y;
+uniform vec2 iMouse;
+uniform float angleX;
+uniform float angleY;
+
+uniform int test_int;
+uniform float u_fov;
+uniform int scene_object_count;
+
+uniform bool w_press;
+uniform vec3 cameraPos, cameraFwd, cameraUp, cameraRight, cameraMov;
+//layout(binding = 6) uniform samplerCube skybox;
+layout(binding = 7) uniform sampler2D equirectangularMap;
+layout(binding = 5) uniform sampler3D world;
+
+// BVH Node structure (must match CPU side)
+struct BVHNode {
+	vec3 minBounds;
+	uint leftChild;     // 0 means leaf node
+	vec3 maxBounds;
+	uint triangleCount; // For leaf: triangle count, for internal: right child
+	uint triangleOffset; // For leaf: offset into triangle array
+	uint padding[3];     // Align to 64 bytes
+};
+
+// Triangle structure (must match CPU side exactly)
+struct OBJTriangle {
+	// Vertex 0
+	vec3 v0_pos;
+	vec3 v0_normal;
+	vec2 v0_texCoord;
+
+	// Vertex 1
+	vec3 v1_pos;
+	vec3 v1_normal;
+	vec2 v1_texCoord;
+
+	// Vertex 2
+	vec3 v2_pos;
+	vec3 v2_normal;
+	vec2 v2_texCoord;
+
+	uint materialIndex;
+	uint padding[3]; // For alignment
+};
+
+// Material structure (must match CPU side)
+struct OBJMaterial {
+	vec3 albedo;
+	float padding1;
+	vec3 emissive;
+	float specularChance;
+	float specularRoughness;
+	float padding2;
+	float padding3;
+	float padding4;
+	vec3 specularColor;
+	float IOR;
+	float refractionChance;
+	float refractionRoughness;
+	float padding5;
+	float padding6;
+	vec3 refractionColor;
+	float padding7;
+};
+
+// Add these buffer bindings to your existing ones
+layout(std430, binding = 8) buffer OBJBVHBuffer
+{
+	BVHNode objBvhNodes[];
+};
+
+layout(std430, binding = 9) buffer OBJTriangleBuffer
+{
+	OBJTriangle objTriangles[];
+};
+
+layout(std430, binding = 10) buffer OBJMaterialBuffer
+{
+	OBJMaterial objMaterials[];
+};
+
+
+#define SCENE 8
+
+layout(std430, binding = 4) buffer layoutName
+{
+	float data_SSBO[];
+};
+
+
+// The minimunm distance a ray must travel before we consider an intersection.
+// This is to prevent a ray from intersecting a surface it just bounced off of.
+const float c_minimumRayHitTime = 0.01;
+const float c_superFar = 10000.0;
+
+const float c_pi = 3.14159265359f;
+const float c_twopi = 2.0f * c_pi;
+
+// a pixel value multiplier of light before tone mapping and sRGB
+const float c_exposure = 1.0f;
+
+// after a hit, it moves the ray this far along the normal away from a surface.
+// Helps prevent incorrect intersections when rays bounce off of objects.
+const float c_rayPosNormalNudge = 0.00001f;
+
+// how many renders per frame - to get around the vsync limitation.
+const int c_numRendersPerFrame = 2;
+const float c_minCameraAngle = 0.01f;
+const float c_maxCameraAngle = (c_pi - 0.01f);
+vec3 c_cameraAt = camera;
+const float c_cameraDistance = 0.0f;
+float FOV = u_fov;
+
+
+const vec3 light = vec3(0.0, 10.0, 20.0);
+
+struct SMaterialInfo
+{
+	// Note: diffuse chance is 1.0f - (specularChance+refractionChance)
+	vec3  albedo;              // the color used for diffuse lighting
+	vec3  emissive;            // how much the surface glows
+	float specularChance;      // percentage chance of doing a specular reflection
+	float specularRoughness;   // how rough the specular reflections are
+	vec3  specularColor;       // the color tint of specular reflections
+	float IOR;                 // index of refraction. used by fresnel and refraction.
+	float refractionChance;    // percent chance of doing a refractive transmission
+	float refractionRoughness; // how rough the refractive transmissions are
+	vec3  refractionColor;     // absorption for beer's law    
+};
+
+SMaterialInfo GetZeroedMaterial()
+{
+	SMaterialInfo ret;
+	ret.albedo = vec3(0.0f, 0.0f, 0.0f);
+	ret.emissive = vec3(0.0f, 0.0f, 0.0f);
+	ret.specularChance = 0.0f;
+	ret.specularRoughness = 0.0f;
+	ret.specularColor = vec3(0.0f, 0.0f, 0.0f);
+	ret.IOR = 1.0f;
+	ret.refractionChance = 0.0f;
+	ret.refractionRoughness = 0.0f;
+	ret.refractionColor = vec3(0.0f, 0.0f, 0.0f);
+	return ret;
+}
+
+struct SRayHitInfo
+{
+	bool fromInside;
+	float dist;
+	vec3 normal;
+	SMaterialInfo material;
+};
+
+
+float ScalarTriple(vec3 u, vec3 v, vec3 w)
+{
+	return dot(cross(u, v), w);
+}
+
+const vec2 invAtan = vec2(0.1591, 0.3183);
+vec2 SampleSphericalMap(in vec3 v)
+{
+	vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+	uv *= invAtan;
+	uv += 0.5;
+	return uv;
+}
+
+uint wang_hash(inout uint seed)
+{
+	seed = uint(seed ^ uint(61)) ^ uint(seed >> uint(16));
+	seed *= uint(9);
+	seed = seed ^ (seed >> 4);
+	seed *= uint(0x27d4eb2d);
+	seed = seed ^ (seed >> 15);
+	return seed;
+}
+
+float RandomFloat01(inout uint state)
+{
+	return float(wang_hash(state)) / 4294967296.0;
+}
+
+vec3 RandomUnitVector(inout uint state)
+{
+	float z = RandomFloat01(state) * 2.0f - 1.0f;
+	float a = RandomFloat01(state) * 2 * 3.14159265359f;
+	float r = sqrt(1.0f - z * z);
+	float x = r * cos(a);
+	float y = r * sin(a);
+	return vec3(x, y, z);
+}
+
+
+
+// BVH ray-box intersection test
+bool rayBoxIntersect(vec3 rayOrigin, vec3 rayDir, vec3 minBounds, vec3 maxBounds, float maxT) {
+	vec3 invDir = 1.0 / rayDir;
+	vec3 t0 = (minBounds - rayOrigin) * invDir;
+	vec3 t1 = (maxBounds - rayOrigin) * invDir;
+
+	vec3 tmin = min(t0, t1);
+	vec3 tmax = max(t0, t1);
+
+	float tnear = max(max(tmin.x, tmin.y), tmin.z);
+	float tfar = min(min(tmax.x, tmax.y), tmax.z);
+
+	return tnear <= tfar && tfar > 0.0 && tnear < maxT;
+}
+
+// Triangle intersection with barycentric coordinates
+bool objTriangleIntersect(vec3 rayOrigin, vec3 rayDir, OBJTriangle tri,
+	inout float t, inout vec3 normal, inout vec2 texCoord, inout uint matIndex) {
+	vec3 edge1 = tri.v1_pos - tri.v0_pos;
+	vec3 edge2 = tri.v2_pos - tri.v0_pos;
+	vec3 h = cross(rayDir, edge2);
+	float a = dot(edge1, h);
+
+	if (a > -0.00001 && a < 0.00001) return false;
+
+	float f = 1.0 / a;
+	vec3 s = rayOrigin - tri.v0_pos;
+	float u = f * dot(s, h);
+
+	if (u < 0.0 || u > 1.0) return false;
+
+	vec3 q = cross(s, edge1);
+	float v = f * dot(rayDir, q);
+
+	if (v < 0.0 || u + v > 1.0) return false;
+
+	float dist = f * dot(edge2, q);
+
+	if (dist > 0.000001 && dist < t) {
+		t = dist;
+
+		//normalize(cross(v1v0, v2v0));
+		// Interpolate normal using barycentric coordinates
+		float w = 1.0 - u - v;
+		normal = normalize(w * tri.v0_normal + u * tri.v1_normal + v * tri.v2_normal);
+		//normal = vec3(0.0, 1.0, 0.0);
+		// Interpolate texture coordinates
+		texCoord = w * tri.v0_texCoord + u * tri.v1_texCoord + v * tri.v2_texCoord;
+		//texCoord = vec2(0.0, 0.0);
+		matIndex = tri.materialIndex;
+		return true;
+	}
+
+	return false;
+}
+
+
+
+// BVH traversal using a stack
+bool traverseOBJBVH(vec3 rayOrigin, vec3 rayDir, inout SRayHitInfo hitInfo) {
+	if (objBvhNodes.length() == 0) return false;
+
+	bool hit = false;
+
+	// Stack for BVH traversal
+	uint stack[32];
+	int stackPtr = 0;
+	stack[stackPtr++] = 0; // Start with root node
+
+	vec3 bestNormal;
+	vec2 bestTexCoord;
+	uint bestMaterialIndex = 0;
+
+	while (stackPtr > 0) {
+		uint nodeIndex = stack[--stackPtr];
+
+		if (nodeIndex >= objBvhNodes.length()) continue;
+
+		BVHNode node = objBvhNodes[nodeIndex];
+
+		// Test ray against bounding box
+		if (!rayBoxIntersect(rayOrigin, rayDir, node.minBounds, node.maxBounds, hitInfo.dist)) {
+			continue;
+		}
+
+		if (node.leftChild == 0) {
+			// Leaf node - test triangles
+			for (uint i = 0; i < node.triangleCount; i++) {
+				uint triIndex = node.triangleOffset + i;
+				if (triIndex >= objTriangles.length()) continue;
+
+				vec3 normal;
+				vec2 texCoord;
+				uint matIndex;
+				float t = hitInfo.dist;
+
+				if (objTriangleIntersect(rayOrigin, rayDir, objTriangles[triIndex], t, normal, texCoord, matIndex)) {
+					if (t < hitInfo.dist && t > c_minimumRayHitTime) {
+						hitInfo.dist = t;
+						bestNormal = normal;
+						bestTexCoord = texCoord;
+						bestMaterialIndex = matIndex;
+						hit = true;
+					}
+				}
+			}
+		}
+		else {
+			// Internal node - add children to stack
+			uint leftChild = node.leftChild; // Convert from 1-based to 0-based
+			uint rightChild = node.triangleCount; // Right child stored in triangleCount
+
+			if (stackPtr < 30) { // Leave room for both children
+				stack[stackPtr++] = rightChild;
+				stack[stackPtr++] = leftChild;
+			}
+		}
+	}
+
+	if (hit) {
+		hitInfo.normal = bestNormal;
+
+		// Apply material properties
+		if (bestMaterialIndex < objMaterials.length()) {
+			OBJMaterial mat = objMaterials[bestMaterialIndex];
+			hitInfo.material.albedo = vec3(0.9, 0.9, 0.9);
+			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+			hitInfo.material.specularChance = 0.02f;
+			hitInfo.material.specularRoughness = 0.0f;
+			hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+			hitInfo.material.IOR = 1.5;
+			hitInfo.material.refractionChance = 1.0f;
+			hitInfo.material.refractionRoughness = 0.0f;
+		}
+		else {
+			// Default material
+			hitInfo.material = GetZeroedMaterial();
+			hitInfo.material.albedo = vec3(0.9, 0.4, 0.9);
+			hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+			hitInfo.material.specularChance = 0.1f;
+			hitInfo.material.specularRoughness = 0.0f;
+			hitInfo.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+			hitInfo.material.IOR = 1.5f;
+			hitInfo.material.refractionChance = 0.0f;
+			hitInfo.material.refractionRoughness = 0.0f;
+			hitInfo.material.refractionColor = vec3(0.0f, 0.0f, 0.0f);
+		}
+	}
+
+	return hit;
+}
+
+// Triangle intersection. Returns { t, u, v }
+vec3 triIntersect(in vec3 ro, in vec3 rd, in vec3 v0, in vec3 v1, in vec3 v2)
+{
+	vec3 v1v0 = v1 - v0;
+	vec3 v2v0 = v2 - v0;
+	vec3 rov0 = ro - v0;
+
+	// The four determinants above have lots of terms in common. Knowing the changing
+	// the order of the columns/rows doesn't change the volume/determinant, and that
+	// the volume is dot(cross(a,b,c)), we can precompute some common terms and reduce
+	// it all to:
+	vec3  n = cross(v1v0, v2v0);
+	vec3  q = cross(rov0, rd);
+	float d = 1.0 / dot(rd, n);
+	float u = d * dot(-q, v2v0);
+	float v = d * dot(q, v1v0);
+	float t = d * dot(-n, rov0);
+
+	if (u<0.0 || v<0.0 || (u + v)>1.0) t = -1.0;
+
+	return vec3(t, u, v);
+}
+
+bool testTriangleIntersect(in vec3 ro, in vec3 rd, in vec3 v0, in vec3 v1, in vec3 v2, inout SRayHitInfo info) {
+	vec3 intersectPoint = triIntersect(ro, rd, v0, v1, v2);
+
+	vec3 v1v0 = v1 - v0;
+	vec3 v2v0 = v2 - v0;
+	vec3 rov0 = ro - v0;
+
+	if (intersectPoint.x > 0.0 && intersectPoint.x > c_minimumRayHitTime && intersectPoint.x < info.dist) {
+		info.dist = intersectPoint.x;
+		info.normal = normalize(cross(v1v0, v2v0));
+		return true;
+	}
+
+	return false;
+}
+
+bool TestCubeTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo info, in vec3 vmin, in vec3 vmax) {
+
+	vec3 tmin = (vmin - rayPos) / rayDir;
+	vec3 tmax = (vmax - rayPos) / rayDir;
+
+	vec3 t1 = min(tmin, tmax);
+	vec3 t2 = max(tmin, tmax);
+
+	float tnear = max(max(t1.x, t1.y), t1.z);
+	float tfar = min(min(t2.x, t2.y), t2.z);
+
+	if (tnear > 0.0 && tnear < tfar && tnear < info.dist) {
+		info.dist = tnear;
+		vec3 newPos = (rayPos + rayDir * info.dist);
+		if (newPos.x < vmin.x + 0.0001) info.normal = vec3(-1.0, 0.0, 0.0);
+		else if (newPos.x > vmax.x - 0.0001) info.normal = vec3(1.0, 0.0, 0.0);
+		else if (newPos.y < vmin.y + 0.0001) info.normal = vec3(0.0, 1.0, 0.0);
+		else if (newPos.y > vmax.y - 0.0001) info.normal = vec3(0.0, -1.0, 0.0);
+		else if (newPos.z < vmin.z + 0.0001) info.normal = vec3(0.0, 0.0, -1.0);
+		else {
+			info.normal = vec3(0.0, 0.0, 1.0);
+		}
+
+		//rayPos.z += 1.0;
+		return true;
+	}
+
+
+	return false;
+}
+
+
+bool TestQuadTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo info, in vec3 a, in vec3 b, in vec3 c, in vec3 d)
+{
+	// calculate normal and flip vertices order if needed
+	vec3 normal = normalize(cross(c - a, c - b));
+	if (dot(normal, rayDir) > 0.0)
+	{
+		normal *= -1.0;
+
+		vec3 temp = d;
+		d = a;
+		a = temp;
+
+		temp = b;
+		b = c;
+		c = temp;
+	}
+
+	vec3 p = rayPos;
+	vec3 q = rayPos + rayDir;
+	vec3 pq = q - p;
+	vec3 pa = a - p;
+	vec3 pb = b - p;
+	vec3 pc = c - p;
+
+	// determine which triangle to test against by testing against diagonal first
+	vec3 m = cross(pc, pq);
+	float v = dot(pa, m);
+	vec3 intersectPos;
+	if (v >= 0.0)
+	{
+		// test against triangle a,b,c
+		float u = -dot(pb, m);
+		if (u < 0.0) return false;
+		float w = ScalarTriple(pq, pb, pa);
+		if (w < 0.0) return false;
+		float denom = 1.0 / (u + v + w);
+		u *= denom;
+		v *= denom;
+		w *= denom;
+		intersectPos = u * a + v * b + w * c;
+	}
+	else
+	{
+		vec3 pd = d - p;
+		float u = dot(pd, m);
+		if (u < 0.0) return false;
+		float w = ScalarTriple(pq, pa, pd);
+		if (w < 0.0) return false;
+		v = -v;
+		float denom = 1.0 / (u + v + w);
+		u *= denom;
+		v *= denom;
+		w *= denom;
+		intersectPos = u * a + v * d + w * c;
+	}
+
+	float dist;
+	if (abs(rayDir.x) > 0.1)
+	{
+		dist = (intersectPos.x - rayPos.x) / rayDir.x;
+	}
+	else if (abs(rayDir.y) > 0.1)
+	{
+		dist = (intersectPos.y - rayPos.y) / rayDir.y;
+	}
+	else
+	{
+		dist = (intersectPos.z - rayPos.z) / rayDir.z;
+	}
+
+	if (dist > c_minimumRayHitTime && dist < info.dist)
+	{
+		info.dist = dist;
+		info.normal = normal;
+		return true;
+	}
+
+	return false;
+}
+
+bool TestSphereTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo info, in vec4 sphere)
+{
+	//get the vector from the center of this sphere to where the ray begins.
+	vec3 m = rayPos - sphere.xyz;
+
+	//get the dot product of the above vector and the ray's vector
+	float b = dot(m, rayDir);
+
+	float c = dot(m, m) - sphere.w * sphere.w;
+
+	//exit if r's origin outside s (c > 0) and r pointing away from s (b > 0)
+	if (c > 0.0 && b > 0.0)
+		return false;
+
+	//calculate discriminant
+	float discr = b * b - c;
+
+	//a negative discriminant corresponds to ray missing sphere
+	if (discr < 0.0)
+		return false;
+
+	//ray now found to intersect sphere, compute smallest t value of intersection
+	bool fromInside = false;
+	float dist = -b - sqrt(discr);
+	if (dist < 0.0)
+	{
+		fromInside = true;
+		dist = -b + sqrt(discr);
+	}
+
+	if (dist > c_minimumRayHitTime && dist < info.dist)
+	{
+		info.dist = dist;
+		info.normal = normalize((rayPos + rayDir * dist) - sphere.xyz) * (fromInside ? -1.0 : 1.0);
+		return true;
+	}
+
+	return false;
+}
+
+
+void TestSceneTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
+{
+
+}
+
+vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngState)
+{
+	// initialize
+	vec3 ret = vec3(0.0f, 0.0f, 0.0f);
+	vec3 throughput = vec3(1.0f, 1.0f, 1.0f);
+	vec3 rayPos = startRayPos;
+	vec3 rayDir = startRayDir;
+
+	for (int bounceIndex = 0; bounceIndex <= 1; ++bounceIndex)
+	{
+		// shoot a ray out into the world
+		SRayHitInfo hitInfo;
+		hitInfo.material = GetZeroedMaterial();
+		hitInfo.dist = c_superFar;
+		hitInfo.fromInside = false;
+		TestSceneTrace(rayPos, rayDir, hitInfo);
+		bool miss = false;
+
+		// if the ray missed, we are done
+		if (hitInfo.dist == c_superFar)
+		{
+			//ret += min(texture(equirectangularMap, SampleSphericalMap(normalize(rayDir))).rgb, vec3(1.0)) * throughput;
+			break;
+		}
+
+
+		// Calculate a new ray direction.
+		// Diffuse uses a normal oriented cosine weighted hemisphere sample.
+		// Perfectly smooth specular uses the reflection ray.
+		// Rough (glossy) specular lerps from the smooth specular to the rough diffuse by the material roughness squared
+		// Squaring the roughness is just a convention to make roughness feel more linear perceptually.
+		vec3 rayDir = normalize(hitInfo.normal + RandomUnitVector(rngState));
+
+
+		throughput = clamp(throughput, 0.0, 1.0);
+
+		if (miss) {
+			break;
+		}
+
+	}
+
+	// return pixel color
+	return ret;
+}
+
+void GetCameraVectors(out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp, out vec3 cameraRight)
+{
+	// if the mouse is at (0,0) it hasn't been moved yet, so use a default camera setup
+	vec2 mouse = vec2(angleX, angleY);
+	if (dot(mouse, vec2(1.0f, 1.0f)) == 0.0f)
+	{
+		cameraPos = vec3(0.0f, 0.0f, -c_cameraDistance);
+		cameraFwd = vec3(0.0f, 0.0f, 1.0f);
+		cameraUp = vec3(0.0f, 1.0f, 0.0f);
+		cameraRight = vec3(1.0f, 0.0f, 0.0f);
+		return;
+	}
+
+	// otherwise use the mouse position to calculate camera position and orientation
+
+	cameraFwd.x = cos(angleX) * cos(angleY) * c_cameraDistance;
+	cameraFwd.y = -sin(angleY) * c_cameraDistance;
+	cameraFwd.z = sin(angleX) * cos(angleY) * c_cameraDistance;
+
+	cameraPos = normalize(c_cameraAt - cameraFwd);
+
+	cameraRight = normalize(cross(vec3(0.0f, 1.0f, 0.0f), cameraPos));
+	cameraUp = normalize(cross(cameraPos, cameraRight));
+}
+
+
+void main() {
+	// base pixel colour for image
+	vec4 pixel = vec4(0.0, 0.0, 0.0, 1.0);
+	// get index in global work group i.e x,y position
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+	vec4 texturecolor = imageLoad(img_output, pixel_coords.xy);
+
+	// initialize a random number state based on frag coord and frame
+	uint rngState = uint(uint(pixel_coords.x) * uint(1973) + uint(pixel_coords.y) * uint(9277) + uint(iTime) * uint(26699)) | uint(1);
+
+	// calculate subpixel camera jitter for anti aliasing
+	vec2 jitter = vec2(RandomFloat01(rngState), RandomFloat01(rngState)) - 0.5f;
+
+	// get the camera vectors
+
+	vec3 rayDir;
+	{
+		// calculate a screen position from -1 to +1 on each axis
+		vec2 rt = vec2(pixel_coords.x, pixel_coords.y);
+		vec2 uvJittered = vec2((rt + jitter) / vec2(game_window_x, game_window_y));
+		vec2 screen = uvJittered * 2.0f - 1.0f;
+
+		// adjust for aspect ratio
+		float aspectRatio = game_window_x / game_window_y;
+		screen.y /= aspectRatio;
+
+		// make a ray direction based on camera orientation and field of view angle
+		float cameraDistance = tan(FOV * 0.5f * c_pi / 180.0f);
+		rayDir = vec3(screen, cameraDistance);
+		rayDir = normalize(mat3(cameraRight, cameraUp, cameraPos) * rayDir);
+	}
+
+	//raytrace for this pxiel
+	vec3 color = vec3(0.0f, 0.0f, 0.0f);
+
+	float blend = (iFrame < 2 || texturecolor.a == 0.0f) ? 1.0f : 1.0f / (1.0f + (1.0f / texturecolor.a));
+	for (int index = 0; index < c_numRendersPerFrame; ++index)
+		color += GetColorForRay(cameraPos + cameraMov, rayDir, rngState) / float(c_numRendersPerFrame);
+
+
+	// convert from linear to sRGB for display
+	color = mix(texturecolor.rgb, color, blend);
+
+	// output to a specific pixel in the image
+	imageStore(img_output, pixel_coords, vec4(color, blend));
+}
